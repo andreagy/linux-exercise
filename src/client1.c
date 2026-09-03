@@ -112,10 +112,15 @@ int main() {
         // Read data from each socket if available
         for (int i = 0; i < 3; i++) {
             if (FD_ISSET(sockets[i], &readfds)) {
-                char temp_buffer[BUFFER_SIZE];
-                int bytes_read = read(sockets[i], temp_buffer, BUFFER_SIZE - 1);
-                if (bytes_read > 0) {
-                    if (buffer_len[i] + bytes_read < BUFFER_SIZE) {
+                for (;;) {
+                    char temp_buffer[BUFFER_SIZE];
+                    ssize_t bytes_read = read(sockets[i], temp_buffer, sizeof(temp_buffer) - 1);
+
+                    if (bytes_read > 0) {
+                        if (buffer_len[i] + bytes_read >= BUFFER_SIZE) {
+                            buffer_len[i] = 0;
+                        }
+
                         memcpy(buffer[i] + buffer_len[i], temp_buffer, bytes_read);
                         buffer_len[i] += bytes_read;
                         buffer[i][buffer_len[i]] = '\0'; // Null-terminate the buffer
@@ -134,7 +139,23 @@ int main() {
                         int remaining_len = buffer_len[i] - (line_start - buffer[i]);
                         memmove(buffer[i], line_start, remaining_len);
                         buffer_len[i] = remaining_len;
+                        continue;
                     }
+
+                    if (bytes_read == 0) {
+                        break;
+                    }
+
+                    if (errno == EINTR) {
+                        continue;
+                    }
+
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        break;
+                    }
+
+                    perror("read socket");
+                    break;
                 }   
             }
         }
