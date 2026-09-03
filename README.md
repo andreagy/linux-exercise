@@ -56,3 +56,17 @@ I also checked that:
 - values appear under the correct output field (checked the output of each TCP port using 'timeout 3 nc localhost 4001' in the docker container)
 - only JSON output is written to STDOUT
 - the latest complete value from each TCP socket is printed: each successful read is processed until a read returns -1, with errno equal to EAGAIN or EWOULDBLOCK, indicating that no more data is currently available. Since each newer complete line overwrites the previous value, the latest available value is printed.
+
+# Task 2
+
+During protocol exploration, I found that objects 1, 2, and 3 correspond to server outputs 1, 2, and 3. Property 14 controls whether an output is enabled using write value 1 and 0. All other property values gave error for read operation, so I continued exploring with the write operation. To find the frequency and amplitude property fields, I used rapid_scan.c to scan through all possible values (max 65535) that reacts to a value of 8000 with no error. This way I found the amplitude property has the field number 170.
+
+Findings:
+property 255: error,Value out of range, 8000 not in [50, 2000]
+property 300: error,Value out of range, 8000 not in [0, 100]
+
+After scanning through the properties with valid values for both, I could find which properties these were. All properties listed for object 1:
+
+property 170: amplitude with range [1000, 10000]
+property 255: frequency with range [50, 2000]
+property 300: glitch chance with range [0, 100]
