@@ -19,8 +19,12 @@
 #define PORT3 4003
 #define CONTROL_CHANNEL 4000
 #define TIMER_INTERVAL_MS 20
+#define WRITE_OP 2
+#define OUT1_OBJ 1
+#define FREQ_PROP 255
+#define AMP_PROP 170
 
-int connect_tcp(int port) {
+int create_tcp_socket(int port) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
         perror("socket");
@@ -37,6 +41,25 @@ int connect_tcp(int port) {
     // Get the current flags of the socket and set it to non-blocking mode
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+
+    return sock;
+}
+
+int create_control_socket(struct sockaddr_in *control_address) {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        return -1;
+    }
+    memset(control_address, 0, sizeof(*control_address));
+    control_address->sin_family = AF_INET;
+    control_address->sin_port = htons(CONTROL_CHANNEL);
+
+    if (inet_pton(AF_INET, "127.0.0.1", &control_address->sin_addr) != 1) {
+        perror("inet_pton");
+        close(sock);
+        return -1;
+    }
 
     return sock;
 }
@@ -70,20 +93,51 @@ uint64_t get_timestamp_ms() {
     return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
+void write_msg(int sock, const struct sockaddr_in *server_addr,
+               uint16_t freq, uint16_t amp) {
+    uint16_t msg_freq[4];
+    msg_freq[0] = htons(WRITE_OP);
+    msg_freq[1] = htons(OUT1_OBJ);
+    msg_freq[2] = htons(FREQ_PROP);
+    msg_freq[3] = htons(freq);
+
+    uint16_t msg_amp[4];
+    msg_amp[0] = htons(WRITE_OP);
+    msg_amp[1] = htons(OUT1_OBJ);
+    msg_amp[2] = htons(AMP_PROP);
+    msg_amp[3] = htons(amp);
+
+    if (sendto(sock, msg_freq, sizeof(msg_freq), 0,
+               (const struct sockaddr *)server_addr,
+               sizeof(*server_addr)) < 0) {
+        perror("sendto");
+    }
+    if (sendto(sock, msg_amp, sizeof(msg_amp), 0,
+               (const struct sockaddr *)server_addr,
+               sizeof(*server_addr)) < 0) {
+        perror("sendto");
+    }
+}
 
 int main() {
+    // Connect to the three output ports and the control channel
     int sockets[3];
-    sockets[0] = connect_tcp(PORT1);
-    sockets[1] = connect_tcp(PORT2);
-    sockets[2] = connect_tcp(PORT3);
+    sockets[0] = create_tcp_socket(PORT1);
+    sockets[1] = create_tcp_socket(PORT2);
+    sockets[2] = create_tcp_socket(PORT3);
+    struct sockaddr_in control_address;
+    int control_socket = create_control_socket(&control_address);
 
+    // Create a timer that expires every 20 milliseconds
     int timer_fd = create_timer(TIMER_INTERVAL_MS);
 
+    // Initialize latest values for each output
     char latest_value[3][MAX_VAL_LEN];
     strcpy(latest_value[0], "--");
     strcpy(latest_value[1], "--");
     strcpy(latest_value[2], "--");
-
+    
+    // Buffers to hold incoming data for each output
     char buffer[3][BUFFER_SIZE];
     int buffer_len[3] = {0, 0, 0};
 
@@ -104,8 +158,8 @@ int main() {
                 maxfd = sockets[i];
             }
         }
-
-        int ready = select(maxfd + 1, &readfds, NULL, NULL, NULL); // timer will wake up select() every 100ms
+        // Wait for data on any of the sockets or the timer
+        int ready = select(maxfd + 1, &readfds, NULL, NULL, NULL);
         if (ready < 0) {
             perror("select()");
             exit(1);
@@ -143,7 +197,7 @@ int main() {
                         buffer_len[i] = remaining_len;
                         continue;
                     }
-
+                    // Check if there are no more bytes to read or if an error occurred
                     if (bytes_read == 0) {
                         break;
                     }
@@ -175,6 +229,16 @@ int main() {
             printf("{\"timestamp\": %lu, \"out1\": \"%s\", \"out2\": \"%s\", \"out3\": \"%s\"}\n",
                    timestamp, latest_value[0], latest_value[1], latest_value[2]);
 
+            // Check out3 and write to control channel
+            if (strcmp(latest_value[2], "--") != 0) {
+                double out3_val = strtod(latest_value[2], NULL);
+                if (out3_val >= 3.0) {
+                    write_msg(control_socket, &control_address, 1000, 8000);
+                } else {
+                    write_msg(control_socket, &control_address, 2000, 4000);
+                }
+            }
+            
             // Reset values to "--"
             strcpy(latest_value[0], "--");
             strcpy(latest_value[1], "--");
@@ -182,6 +246,7 @@ int main() {
         }
     }
 
+    close(control_socket);
     close(timer_fd);
     for (int i = 0; i < 3; i++) {
         close(sockets[i]);

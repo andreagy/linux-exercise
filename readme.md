@@ -23,11 +23,9 @@ It is possible for the timer and a socket to become ready at approximately the s
 
 ## Results
 
-All three outputs resemble a certain type of waveform or function. I determined frequency by checking the time difference between the start and end of the period.
+All three outputs resemble a certain type of waveform or function. First I determined frequency by checking the time difference between the start and end of the period. Then later I used server_output_test.c to observe outputs and validate the results.
 
 What are the frequencies, amplitues and shapes you see on the server outputs?
-
-For out1, I temporarily changed the client timer interval from 100ms to 10ms, which provided a denser set of values to identify the start and end of a complete period easier.
 
 Out1 (Port 4001)<br>
 Shape: Sine wave<br>
@@ -41,12 +39,12 @@ Amplitude: 5 (range –5.0 to 5.0)<br>
 
 Out3 (Port 4003)<br>
 Shape: Square wave<br>
-Frequency: 0.125 Hz (period ≈ 8000 ms)<br>
+Frequency: ~0.15Hz (high variation in period length)<br>
 Amplitude: 5 (range 0 to 5.0)<br>
 
 ## Validation
 
-Checking consecutive timestamps, they were separated by 100 ms. At some point, a difference of 99ms appeared (see output_client1.log file), but this doesn't mean that the timer interval changed. The timer uses CLOCK_MONOTONIC, and the required Unix-epoch timestamp is obtained with CLOCK_REALTIME. The small variation also can result from process scheduling and conversion to whole milliseconds. So all in all, the solution correctly prints the lines at 100ms intervals with an occasional small variation most probably not caused by the timer.
+Checking consecutive timestamps, they were separated by 100 ms. At some point, a difference of 99ms appeared, but this doesn't mean that the timer interval changed. The timer uses CLOCK_MONOTONIC, and the required Unix-epoch timestamp is obtained with CLOCK_REALTIME. The small variation also can result from process scheduling and conversion to whole milliseconds. So all in all, the solution correctly prints the lines at 100ms intervals with an occasional small variation most probably not caused by the timer.
 
 I also checked that:
 - every output line is a seperate JSON object
@@ -59,14 +57,26 @@ I also checked that:
 
 # Task 2
 
-During protocol exploration, I found that objects 1, 2, and 3 correspond to server outputs 1, 2, and 3. Property 14 controls whether an output is enabled using write value 1 and 0. All other property values gave error for read operation, so I continued exploring with the write operation. To find the frequency and amplitude property fields, I used rapid_scan.c to scan through all possible values (max 65535) that reacts to a value of 8000 with no error. This way I found the amplitude property has the field number 170.
+## Design
 
-Findings:
-property 255: error,Value out of range, 8000 not in [50, 2000]
-property 300: error,Value out of range, 8000 not in [0, 100]
+The client2 program adds server control logic to the output processing program. At each 20ms timer expiration it prints one JSON object containing the timestamp and the latest values reveived from all three outputs. Afterwards, the program evaluates the latest value from output 3. If out3 is greater than or equal to 3.0, the program calls the write_msg function which sends two messages to the control channel. These messages set the output 1 frequency to 1000 (1Hz) and amplitude to 8000. If out3 is lower than 3.0, it sends values 2000 (2Hz) and 4000 respectively. The control messages are sent only when output 3 has a value. The UDP messages contain the write operation, object 1, the relevant property, and the new value.
 
-After scanning through the properties with valid values for both, I could find which properties these were. All properties listed for object 1:
+## Protocol exploration
 
-property 170: amplitude with range [1000, 10000]
-property 255: frequency with range [50, 2000]
-property 300: glitch chance with range [0, 100]
+Using the read operation, I found that objects 1, 2, and 3 correspond to server outputs 1, 2, and 3. Property 14 controls whether an output is enabled using write value 1 and 0. All other property values gave error for read operation, so I continued exploring with the write operation. To find the frequency and amplitude property fields, I used rapid_scan.c to scan through all possible values (max 65535) that reacts to a value of 8000 with no error. This way I found the amplitude property has the field number 170.
+
+Findings:<br>
+property 255: error,Value out of range, 8000 not in [50, 2000]<br>
+property 300: error,Value out of range, 8000 not in [0, 100]<br>
+
+After scanning through the properties with writing valid values for both, I could find which properties these were. All properties listed for object 1:
+
+property 170: amplitude with range [1000, 10000]<br>
+property 255: frequency with range [50, 2000]<br>
+property 300: glitch chance with range [0, 100]<br>
+
+With the server_output_test.c tool I found what unit is expected for frequency. My initial guess was ms, but the tool revealed that it is millihertz. Therefore to set the frequency of server output 1 to 2Hz I need to write the value 2000 to the frequency property.
+
+## Validation
+
+The server_output_test tool also validates the solution by observing and analyzing the server output 1 after terminating client2. The new amplitudes are easily observable manually as well from the client2 JSON object outputs. I also used debug prints to check if the changes happen at the right time (output_client2.log).

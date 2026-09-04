@@ -19,7 +19,7 @@
 #define PORT3 4003
 #define TIMER_INTERVAL_MS 100
 
-int connect_tcp(int port) {
+int create_tcp_socket(int port) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
         perror("socket");
@@ -70,18 +70,22 @@ uint64_t get_timestamp_ms() {
 }
 
 int main() {
+    // Connect to the three output ports and the control channel
     int sockets[3];
-    sockets[0] = connect_tcp(PORT1);
-    sockets[1] = connect_tcp(PORT2);
-    sockets[2] = connect_tcp(PORT3);
+    sockets[0] = create_tcp_socket(PORT1);
+    sockets[1] = create_tcp_socket(PORT2);
+    sockets[2] = create_tcp_socket(PORT3);
 
+    // Create a timer that expires every 100 milliseconds
     int timer_fd = create_timer(TIMER_INTERVAL_MS);
 
+    // Initialize latest values for each output
     char latest_value[3][MAX_VAL_LEN];
     strcpy(latest_value[0], "--");
     strcpy(latest_value[1], "--");
     strcpy(latest_value[2], "--");
 
+    // Buffers to hold incoming data for each output
     char buffer[3][BUFFER_SIZE];
     int buffer_len[3] = {0, 0, 0};
 
@@ -102,7 +106,7 @@ int main() {
                 maxfd = sockets[i];
             }
         }
-
+        // Wait for data on any of the sockets or the timer
         int ready = select(maxfd + 1, &readfds, NULL, NULL, NULL); // timer will wake up select() every 100ms
         if (ready < 0) {
             perror("select()");
@@ -141,7 +145,7 @@ int main() {
                         buffer_len[i] = remaining_len;
                         continue;
                     }
-
+                    // Check if there are no more bytes to read or if an error occurred
                     if (bytes_read == 0) {
                         break;
                     }
