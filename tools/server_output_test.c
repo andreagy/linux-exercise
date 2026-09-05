@@ -27,12 +27,14 @@ struct sample {
     double value;
 };
 
+// Get the current time in seconds
 static double monotonic_seconds(void) {
     struct timespec timestamp;
     clock_gettime(CLOCK_MONOTONIC, &timestamp);
     return timestamp.tv_sec + timestamp.tv_nsec / 1000000000.0;
 }
 
+// Create a TCP socket and connect to the specified output port
 static int connect_output(int output_number) {
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in address;
@@ -57,6 +59,7 @@ static int connect_output(int output_number) {
     return socket_fd;
 }
 
+// Send a write message to the control channel with the specified property and value
 static int send_write(uint16_t property, uint16_t value) {
     int socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
     uint16_t message[4] = {
@@ -86,6 +89,7 @@ static int send_write(uint16_t property, uint16_t value) {
     return 0;
 }
 
+// Print the header information for the output report
 static void print_header(int observe_only, int output_number,
                          uint16_t frequency_value, uint16_t amplitude_value) {
     if (observe_only) {
@@ -96,6 +100,7 @@ static void print_header(int observe_only, int output_number,
     }
 }
 
+// Analyze and report the results for output 3
 static void report_output3(const struct sample *samples, size_t sample_count,
                            double minimum, double maximum) {
     double midpoint = (minimum + maximum) / 2.0;
@@ -110,6 +115,7 @@ static void report_output3(const struct sample *samples, size_t sample_count,
     size_t low_duration_count = 0;
     int high = samples[0].value >= midpoint;
 
+    // Iterate through the samples to detect transitions and calculate durations
     for (size_t index = 1; index < sample_count; index++) {
         int current_high = samples[index].value >= midpoint;
 
@@ -119,6 +125,7 @@ static void report_output3(const struct sample *samples, size_t sample_count,
 
         double transition_time = samples[index].time;
         if (samples[index].value != samples[index - 1].value) {
+            // Interpolate the transition time between the two samples
             double fraction = (midpoint - samples[index - 1].value) /
                               (samples[index].value - samples[index - 1].value);
             transition_time = samples[index - 1].time +
@@ -168,12 +175,13 @@ static void report_output3(const struct sample *samples, size_t sample_count,
     }
 }
 
+// Analyze and report the frequency based on midpoint crossings
 static void report_midpoint_frequency(const struct sample *samples,
                                       size_t sample_count, double midpoint) {
     double period_sum = 0.0;
     double previous_crossing = 0.0;
     size_t crossing_count = 0;
-
+    // Iterate through the samples to detect rising midpoint crossings and calculate periods                                        
     for (size_t index = 1; index < sample_count; index++) {
         if (samples[index - 1].value < midpoint &&
             samples[index].value >= midpoint) {
@@ -199,6 +207,7 @@ static void report_midpoint_frequency(const struct sample *samples,
     }
 }
 
+// Analyze the collected samples and print the results
 static void report_results(const struct sample *samples, size_t sample_count,
                            int observe_only, int output_number,
                            uint16_t frequency_value,
@@ -316,7 +325,7 @@ int main(int argc, char **argv) {
         if (ready == 0) {
             continue;
         }
-
+        // Read data from the socket
         ssize_t bytes_read = read(socket_fd, buffer + buffer_length,
                                   sizeof(buffer) - buffer_length - 1);
         if (bytes_read <= 0) {
@@ -330,6 +339,7 @@ int main(int argc, char **argv) {
 
         char *line_start = buffer;
         char *newline;
+        // Process complete lines in the buffer and convert them to samples
         while ((newline = memchr(line_start, '\n',
                                  buffer + buffer_length - line_start)) != NULL) {
             *newline = '\0';
@@ -344,7 +354,7 @@ int main(int argc, char **argv) {
             }
             line_start = newline + 1;
         }
-
+        // Move any remaining data to the start of the buffer for the next read
         buffer_length = (size_t)(buffer + buffer_length - line_start);
         memmove(buffer, line_start, buffer_length);
     }

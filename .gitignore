@@ -4,3 +4,4 @@ client2
 read-probe
 write-probe
 rapid_scan
+server_output_test
